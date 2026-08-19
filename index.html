@@ -2,73 +2,135 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>Dragon Lair Simulator</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
       overflow: hidden;
       background: #0a0505;
       font-family: Georgia, 'Times New Roman', serif;
       color: #f4e4bc;
       user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+      height: 100%;
+      width: 100%;
+      position: fixed;
     }
-    canvas { display: block; width: 100vw; height: 100vh; }
+    canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
     #title-screen {
       position: absolute; inset: 0;
       background: radial-gradient(ellipse at center, rgba(40,15,10,0.92) 0%, rgba(10,5,5,0.97) 100%);
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      text-align: center; z-index: 20; padding: 20px;
+      text-align: center; z-index: 30; padding: 16px; overflow-y: auto;
     }
     #title-screen h1 {
-      font-size: clamp(2.2rem, 8vw, 3.8rem);
+      font-size: clamp(2rem, 8vw, 3.6rem);
       color: #c41e3a;
       text-shadow: 0 0 30px #ff4400, 0 0 60px #aa2200;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       letter-spacing: 0.05em;
     }
     #title-screen .tagline {
-      font-size: 1.15rem; color: #e8c87a; margin-bottom: 28px; max-width: 520px; line-height: 1.5;
+      font-size: clamp(0.95rem, 3.5vw, 1.15rem); color: #e8c87a; margin-bottom: 18px; max-width: 520px; line-height: 1.45;
     }
     #title-screen .controls {
       background: rgba(0,0,0,0.45); border: 1px solid #5a3a20;
-      border-radius: 10px; padding: 18px 24px; max-width: 480px;
-      font-size: 0.95rem; line-height: 1.7; text-align: left; margin-bottom: 28px;
+      border-radius: 10px; padding: 14px 18px; max-width: 480px; width: 100%;
+      font-size: clamp(0.85rem, 3.2vw, 0.95rem); line-height: 1.65; text-align: left; margin-bottom: 20px;
     }
     #title-screen .controls strong { color: #ffcc66; }
     #start-btn {
       background: linear-gradient(180deg, #8b1a1a, #5c0e0e);
       color: #ffddaa; border: 2px solid #c41e3a;
-      padding: 14px 42px; font-size: 1.25rem; font-family: Georgia, serif;
+      padding: 14px 36px; font-size: 1.2rem; font-family: Georgia, serif;
       border-radius: 8px; cursor: pointer; letter-spacing: 0.08em;
       box-shadow: 0 0 25px rgba(196,30,58,0.5);
-      transition: transform 0.15s, box-shadow 0.15s;
+      -webkit-appearance: none; appearance: none;
     }
-    #start-btn:hover { transform: scale(1.05); box-shadow: 0 0 40px rgba(196,30,58,0.75); }
     #hud {
-      position: absolute; top: 14px; left: 14px;
+      position: absolute; top: max(10px, env(safe-area-inset-top)); left: 12px;
       pointer-events: none; text-shadow: 0 1px 6px #000, 0 0 12px #000;
-      font-size: 1.05rem; line-height: 1.55; z-index: 10;
+      font-size: clamp(0.9rem, 3.5vw, 1.05rem); line-height: 1.5; z-index: 10;
     }
     #hud span { color: #ffdd88; font-weight: bold; }
     #message {
-      position: absolute; bottom: 28px; left: 0; right: 0;
-      text-align: center; font-size: 1.35rem;
+      position: absolute; bottom: 120px; left: 0; right: 0;
+      text-align: center; font-size: clamp(1rem, 4vw, 1.3rem);
       text-shadow: 0 0 12px #000, 0 2px 8px #000;
-      opacity: 0; transition: opacity 0.35s; pointer-events: none; z-index: 10;
+      opacity: 0; transition: opacity 0.35s; pointer-events: none; z-index: 12;
+      padding: 0 12px;
     }
     #message.show { opacity: 1; }
     #crosshair {
       position: absolute; top: 50%; left: 50%;
-      width: 18px; height: 18px; margin: -9px 0 0 -9px;
-      border: 1.5px solid rgba(255,220,150,0.55); border-radius: 50%;
+      width: 16px; height: 16px; margin: -8px 0 0 -8px;
+      border: 1.5px solid rgba(255,220,150,0.5); border-radius: 50%;
       pointer-events: none; z-index: 5; display: none;
     }
-    #crosshair::after {
-      content: ''; position: absolute; top: 50%; left: 50%;
-      width: 4px; height: 4px; margin: -2px 0 0 -2px;
-      background: rgba(255,200,100,0.8); border-radius: 50%;
+
+    /* ===== MOBILE CONTROLS ===== */
+    #mobile-ui {
+      display: none;
+      position: absolute; inset: 0; z-index: 15; pointer-events: none;
     }
+    #mobile-ui.active { display: block; }
+    .mbtn {
+      pointer-events: auto;
+      position: absolute;
+      border: 2px solid rgba(196, 30, 58, 0.7);
+      background: rgba(40, 12, 12, 0.55);
+      color: #ffddaa;
+      font-family: Georgia, serif;
+      font-size: 0.85rem;
+      font-weight: bold;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      text-shadow: 0 1px 3px #000;
+      -webkit-user-select: none; user-select: none;
+      touch-action: none;
+    }
+    .mbtn:active, .mbtn.held {
+      background: rgba(160, 30, 30, 0.85);
+      border-color: #ff6644;
+      transform: scale(0.96);
+    }
+    #btn-flap {
+      width: 78px; height: 78px; right: 18px; bottom: 28px;
+      font-size: 0.95rem; border-radius: 50%;
+    }
+    #btn-brake {
+      width: 56px; height: 56px; right: 28px; bottom: 118px;
+    }
+    #btn-left {
+      width: 62px; height: 62px; left: 16px; bottom: 36px;
+    }
+    #btn-right {
+      width: 62px; height: 62px; left: 90px; bottom: 36px;
+    }
+    #btn-pick {
+      width: 54px; height: 54px; left: 16px; bottom: 110px;
+      font-size: 0.75rem;
+    }
+    #btn-drop {
+      width: 54px; height: 54px; left: 78px; bottom: 110px;
+      font-size: 0.75rem;
+    }
+    #btn-fire {
+      width: 58px; height: 58px; right: 100px; bottom: 36px;
+      background: rgba(80, 20, 10, 0.7);
+      border-color: #cc4422;
+      font-size: 0.8rem;
+    }
+    #look-hint {
+      position: absolute; top: 48%; left: 50%; transform: translate(-50%, -50%);
+      color: rgba(255,220,150,0.45); font-size: 0.9rem; pointer-events: none;
+      text-align: center; display: none;
+    }
+    #look-hint.show { display: block; }
   </style>
 </head>
 <body>
@@ -76,14 +138,12 @@
     <h1>DRAGON LAIR</h1>
     <p class="tagline">You are an ancient dragon. Your mountain cave holds the hoard. Raid the valley towns, steal their sheep, recover lost eggs, and return them to your lair.</p>
     <div class="controls">
-      <strong>Mouse</strong> — Look / pitch & yaw (click to lock)<br>
-      <strong>W / Space</strong> — Flap wings (thrust + lift)<br>
-      <strong>S</strong> — Brake / slow<br>
-      <strong>A / D</strong> — Bank left / right<br>
-      <strong>E</strong> — Pick up sheep or egg (when close)<br>
-      <strong>G</strong> — Drop cargo (near cave = add to hoard)<br>
-      <strong>F</strong> — Breathe fire (raid a town)<br>
-      <strong>Esc</strong> — Unlock mouse / pause
+      <strong>Desktop</strong><br>
+      Mouse look · W/Space flap · S brake · A/D bank<br>
+      E pick up · G drop · F fire<br><br>
+      <strong>Phone / Tablet</strong><br>
+      Drag screen to look · Big FLAP button · Bank L/R<br>
+      PICK · DROP · FIRE buttons
     </div>
     <button id="start-btn">TAKE FLIGHT</button>
   </div>
@@ -99,6 +159,17 @@
   <div id="message"></div>
   <div id="crosshair"></div>
 
+  <div id="mobile-ui">
+    <div id="look-hint">Drag to look around</div>
+    <button class="mbtn" id="btn-flap">FLAP</button>
+    <button class="mbtn" id="btn-brake">SLOW</button>
+    <button class="mbtn" id="btn-left">◀</button>
+    <button class="mbtn" id="btn-right">▶</button>
+    <button class="mbtn" id="btn-pick">PICK</button>
+    <button class="mbtn" id="btn-drop">DROP</button>
+    <button class="mbtn" id="btn-fire">FIRE</button>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <script>
     // ========== GLOBALS ==========
@@ -108,20 +179,25 @@
     let keys = {};
     let mouseDelta = { x: 0, y: 0 };
     let isLocked = false;
-    let gameState = 'title'; // title | playing | paused
+    let gameState = 'title';
     let gold = 0, sheepHoard = 0, eggHoard = 0;
-    let carrying = null; // null | 'sheep' | 'egg'
+    let carrying = null;
     let carriedMesh = null;
     let flapPhase = 0;
     let messageTimer = 0;
     let fireCooldown = 0;
+
+    // Touch / mobile
+    const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    let touchLookActive = false;
+    let lastTouchX = 0, lastTouchY = 0;
+    let mobileFlap = false, mobileBrake = false, mobileLeft = false, mobileRight = false;
 
     const WORLD = 2000;
     const towns = [];
     const sheepList = [];
     const eggList = [];
 
-    // ========== HEIGHT FUNCTION ==========
     function getHeight(x, z) {
       const r = Math.sqrt(x * x + z * z);
       let h = 18 + 145 * Math.exp(-(r * r) / 95000);
@@ -131,7 +207,6 @@
       return Math.max(h, 6);
     }
 
-    // ========== INIT ==========
     function init() {
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x6ba3c9);
@@ -145,12 +220,11 @@
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       document.body.appendChild(renderer.domElement);
 
-      // Lights
       scene.add(new THREE.AmbientLight(0x6688aa, 0.55));
       const sun = new THREE.DirectionalLight(0xfff0d8, 1.25);
       sun.position.set(180, 420, 120);
       sun.castShadow = true;
-      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.mapSize.set(1024, 1024);
       sun.shadow.camera.near = 50;
       sun.shadow.camera.far = 1200;
       sun.shadow.camera.left = sun.shadow.camera.bottom = -400;
@@ -168,18 +242,35 @@
       clock = new THREE.Clock();
 
       window.addEventListener('resize', onResize);
-      document.addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Escape') unlock(); });
+      document.addEventListener('keydown', e => {
+        keys[e.code] = true;
+        if (e.code === 'Escape') unlock();
+      });
       document.addEventListener('keyup', e => { keys[e.code] = false; });
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('pointerlockchange', () => {
         isLocked = document.pointerLockElement === renderer.domElement;
         document.getElementById('crosshair').style.display = isLocked ? 'block' : 'none';
-        if (!isLocked && gameState === 'playing') gameState = 'paused';
+        if (!isLocked && gameState === 'playing' && !isTouchDevice) gameState = 'paused';
       });
       renderer.domElement.addEventListener('click', () => {
-        if (gameState === 'playing' && !isLocked) renderer.domElement.requestPointerLock();
+        if (gameState === 'playing' && !isLocked && !isTouchDevice) {
+          renderer.domElement.requestPointerLock();
+        }
       });
+
+      // Touch look (drag on canvas, not on buttons)
+      renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: false });
+      renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
+      renderer.domElement.addEventListener('touchend', onTouchEnd, { passive: false });
+      renderer.domElement.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+      setupMobileButtons();
       document.getElementById('start-btn').addEventListener('click', startGame);
+      document.getElementById('start-btn').addEventListener('touchend', e => {
+        e.preventDefault();
+        startGame();
+      }, { passive: false });
 
       animate();
     }
@@ -201,10 +292,91 @@
       if (document.pointerLockElement) document.exitPointerLock();
     }
 
+    // ===== TOUCH LOOK =====
+    function onTouchStart(e) {
+      if (gameState !== 'playing') return;
+      e.preventDefault();
+      // Only start look if not pressing a button (buttons have their own handlers)
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        lastTouchX = t.clientX;
+        lastTouchY = t.clientY;
+        touchLookActive = true;
+        document.getElementById('look-hint').classList.remove('show');
+      }
+    }
+
+    function onTouchMove(e) {
+      if (!touchLookActive || gameState !== 'playing') return;
+      e.preventDefault();
+      if (e.touches.length >= 1) {
+        const t = e.touches[0];
+        const dx = t.clientX - lastTouchX;
+        const dy = t.clientY - lastTouchY;
+        mouseDelta.x += dx * 1.6;
+        mouseDelta.y += dy * 1.6;
+        lastTouchX = t.clientX;
+        lastTouchY = t.clientY;
+      }
+    }
+
+    function onTouchEnd(e) {
+      if (e.touches.length === 0) touchLookActive = false;
+    }
+
+    function setupMobileButtons() {
+      const bindHold = (id, setFlag) => {
+        const el = document.getElementById(id);
+        const start = e => {
+          e.preventDefault();
+          e.stopPropagation();
+          setFlag(true);
+          el.classList.add('held');
+        };
+        const end = e => {
+          e.preventDefault();
+          e.stopPropagation();
+          setFlag(false);
+          el.classList.remove('held');
+        };
+        el.addEventListener('touchstart', start, { passive: false });
+        el.addEventListener('touchend', end, { passive: false });
+        el.addEventListener('touchcancel', end, { passive: false });
+        el.addEventListener('mousedown', start);
+        el.addEventListener('mouseup', end);
+        el.addEventListener('mouseleave', end);
+      };
+
+      bindHold('btn-flap', v => { mobileFlap = v; });
+      bindHold('btn-brake', v => { mobileBrake = v; });
+      bindHold('btn-left', v => { mobileLeft = v; });
+      bindHold('btn-right', v => { mobileRight = v; });
+
+      const tap = (id, fn) => {
+        const el = document.getElementById(id);
+        const fire = e => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (gameState === 'playing') fn();
+        };
+        el.addEventListener('touchend', fire, { passive: false });
+        el.addEventListener('click', fire);
+      };
+      tap('btn-pick', tryPickup);
+      tap('btn-drop', tryDrop);
+      tap('btn-fire', tryFire);
+    }
+
     function startGame() {
       document.getElementById('title-screen').style.display = 'none';
       gameState = 'playing';
-      renderer.domElement.requestPointerLock();
+      if (isTouchDevice) {
+        document.getElementById('mobile-ui').classList.add('active');
+        document.getElementById('look-hint').classList.add('show');
+        setTimeout(() => document.getElementById('look-hint').classList.remove('show'), 3500);
+      } else {
+        renderer.domElement.requestPointerLock();
+      }
       showMessage('The mountain is yours. Protect the hoard.');
     }
 
@@ -217,7 +389,7 @@
 
     // ========== TERRAIN ==========
     function createTerrain() {
-      const geo = new THREE.PlaneGeometry(WORLD, WORLD, 96, 96);
+      const geo = new THREE.PlaneGeometry(WORLD, WORLD, 80, 80);
       geo.rotateX(-Math.PI / 2);
       const pos = geo.attributes.position;
       const colors = [];
@@ -235,7 +407,7 @@
       geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
       geo.computeVertexNormals();
       const mat = new THREE.MeshStandardMaterial({
-        vertexColors: true, roughness: 0.92, metalness: 0.02, flatShading: false
+        vertexColors: true, roughness: 0.92, metalness: 0.02
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.receiveShadow = true;
@@ -252,19 +424,17 @@
       });
       const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffcc22, emissive: 0xaa8800, emissiveIntensity: 0.6 });
 
-      // Body
-      const body = new THREE.Mesh(new THREE.SphereGeometry(3.6, 14, 10), scaleMat);
+      const body = new THREE.Mesh(new THREE.SphereGeometry(3.6, 12, 8), scaleMat);
       body.scale.set(2.35, 1.05, 1.15);
       body.castShadow = true;
       dragon.add(body);
 
-      // Neck + Head
       const neck = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.2, 5, 8), scaleMat);
       neck.rotation.z = Math.PI / 2;
       neck.position.set(6.5, 1.2, 0);
       dragon.add(neck);
 
-      const head = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 10), scaleMat);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(2.4, 10, 8), scaleMat);
       head.position.set(10.2, 1.8, 0);
       head.scale.set(1.25, 0.95, 0.9);
       head.castShadow = true;
@@ -275,7 +445,6 @@
       snout.position.set(13.6, 1.5, 0);
       dragon.add(snout);
 
-      // Horns
       [[0.9, 0.55], [-0.9, -0.55]].forEach(([z, rz]) => {
         const horn = new THREE.Mesh(new THREE.ConeGeometry(0.32, 2.8, 6), darkMat);
         horn.position.set(10.8, 3.6, z);
@@ -284,14 +453,12 @@
         dragon.add(horn);
       });
 
-      // Eyes
       [[0.9], [-0.9]].forEach(([z]) => {
         const eye = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), eyeMat);
         eye.position.set(11.6, 2.4, z);
         dragon.add(eye);
       });
 
-      // Wings
       leftWing = new THREE.Group();
       leftWing.position.set(1.5, 1.8, -1.8);
       const lMem = new THREE.Mesh(new THREE.PlaneGeometry(20, 11), wingMat);
@@ -299,7 +466,6 @@
       lMem.rotation.y = 0.15;
       lMem.position.set(2, 0, -8);
       leftWing.add(lMem);
-      // wing bone
       const lBone = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.15, 18, 5), darkMat);
       lBone.rotation.z = Math.PI / 2;
       lBone.rotation.y = 0.4;
@@ -321,21 +487,18 @@
       rightWing.add(rBone);
       dragon.add(rightWing);
 
-      // Tail
       const tail = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 0.25, 18, 7), scaleMat);
       tail.rotation.z = Math.PI / 2;
       tail.position.set(-12, 0.2, 0);
       tail.castShadow = true;
       dragon.add(tail);
 
-      // Legs (simple)
       [[-2, -2.8, 2.2], [-2, -2.8, -2.2], [3, -2.6, 2], [3, -2.6, -2]].forEach(([x, y, z]) => {
         const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.4, 3.2, 6), darkMat);
         leg.position.set(x, y, z);
         dragon.add(leg);
       });
 
-      // Start position — ledge of the mountain, facing outward
       dragon.position.set(15, getHeight(15, -55) + 12, -55);
       dragon.rotation.order = 'YXZ';
       dragon.rotation.y = Math.PI * 0.15;
@@ -364,23 +527,14 @@
           const house = new THREE.Mesh(new THREE.BoxGeometry(7 + Math.random() * 4, 5 + Math.random() * 3, 6 + Math.random() * 3), houseMat);
           house.position.set(hx, 3, hz);
           house.castShadow = true;
-          house.receiveShadow = true;
           group.add(house);
           const roof = new THREE.Mesh(new THREE.ConeGeometry(6, 4, 4), roofMat);
           roof.position.set(hx, 7.5, hz);
           roof.rotation.y = Math.PI / 4;
           group.add(roof);
         }
-        // simple road marker
-        const marker = new THREE.Mesh(
-          new THREE.CylinderGeometry(1.2, 1.2, 0.4, 8),
-          new THREE.MeshStandardMaterial({ color: 0x444444 })
-        );
-        marker.position.y = 0.3;
-        group.add(marker);
-
         scene.add(group);
-        towns.push({ group, raided: false, houseMat, burntMat, x: s.x, z: s.z });
+        towns.push({ group, raided: false, burntMat, x: s.x, z: s.z });
       });
     }
 
@@ -406,13 +560,6 @@
         const head = new THREE.Mesh(new THREE.SphereGeometry(0.7, 6, 5), white);
         head.position.set(1.5, 0.3, 0);
         sheep.add(head);
-        const earL = new THREE.Mesh(new THREE.SphereGeometry(0.25, 4, 3), black);
-        earL.position.set(1.6, 0.7, 0.4);
-        sheep.add(earL);
-        const earR = earL.clone();
-        earR.position.z = -0.4;
-        sheep.add(earR);
-        // legs
         [[0.7, -1.3, 0.6], [0.7, -1.3, -0.6], [-0.7, -1.3, 0.6], [-0.7, -1.3, -0.6]].forEach(p => {
           const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.15, 1.1, 4), black);
           leg.position.set(...p);
@@ -421,7 +568,7 @@
         sheep.position.set(x, y, z);
         sheep.rotation.y = Math.random() * Math.PI * 2;
         scene.add(sheep);
-        sheepList.push({ mesh: sheep, collected: false, x, z });
+        sheepList.push({ mesh: sheep, collected: false });
       }
     }
 
@@ -438,7 +585,6 @@
         egg.scale.set(1, 1.25, 1);
         egg.position.set(s.x, y, s.z);
         egg.castShadow = true;
-        // nest
         const nest = new THREE.Mesh(
           new THREE.TorusGeometry(2.4, 0.5, 6, 12),
           new THREE.MeshStandardMaterial({ color: 0x4a3520, roughness: 1 })
@@ -462,21 +608,14 @@
         const x = Math.cos(ang) * r;
         const z = Math.sin(ang) * r - 8;
         const y = getHeight(x, z) + 1.2 + Math.random() * 2;
-        const pile = new THREE.Mesh(
-          new THREE.SphereGeometry(1.2 + Math.random() * 1.4, 7, 5),
-          goldMat
-        );
+        const pile = new THREE.Mesh(new THREE.SphereGeometry(1.2 + Math.random() * 1.4, 7, 5), goldMat);
         pile.position.set(x, y, z);
         pile.scale.set(1.2, 0.6 + Math.random() * 0.5, 1.1);
         scene.add(pile);
       }
-      // cave mouth rocks
       const rockMat = new THREE.MeshStandardMaterial({ color: 0x3a3228, roughness: 0.95 });
       for (let i = 0; i < 8; i++) {
-        const rock = new THREE.Mesh(
-          new THREE.DodecahedronGeometry(4 + Math.random() * 5, 0),
-          rockMat
-        );
+        const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(4 + Math.random() * 5, 0), rockMat);
         const a = (i / 8) * Math.PI * 1.4 - 0.4;
         rock.position.set(Math.cos(a) * 28, getHeight(0, 0) + 8 + Math.random() * 6, Math.sin(a) * 22 - 5);
         rock.rotation.set(Math.random(), Math.random(), Math.random());
@@ -486,7 +625,7 @@
 
     // ========== FLIGHT ==========
     function updateFlight(dt) {
-      const flapping = keys['KeyW'] || keys['Space'];
+      const flapping = keys['KeyW'] || keys['Space'] || mobileFlap;
       if (flapping) {
         flapPhase += dt * 9.5;
         const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(dragon.quaternion);
@@ -496,32 +635,27 @@
         flapPhase += dt * 1.8;
       }
 
-      // gravity + mild lift
       velocity.y -= 24 * dt;
       const spd = velocity.length();
       if (spd > 8) velocity.y += Math.min(spd * 0.18, 9) * dt;
 
-      // drag
       velocity.multiplyScalar(Math.max(0, 1 - 0.55 * dt));
-      if (keys['KeyS']) velocity.multiplyScalar(Math.max(0, 1 - 1.8 * dt));
+      if (keys['KeyS'] || mobileBrake) velocity.multiplyScalar(Math.max(0, 1 - 1.8 * dt));
 
-      // orientation from mouse
-      if (isLocked) {
+      // look (mouse or touch)
+      if (isLocked || isTouchDevice) {
         dragon.rotation.y -= mouseDelta.x * 0.0018;
         dragon.rotation.x -= mouseDelta.y * 0.0015;
         dragon.rotation.x = Math.max(-1.15, Math.min(0.85, dragon.rotation.x));
         mouseDelta.x = mouseDelta.y = 0;
       }
 
-      // bank
-      if (keys['KeyA']) dragon.rotation.z += 1.8 * dt;
-      if (keys['KeyD']) dragon.rotation.z -= 1.8 * dt;
-      dragon.rotation.z *= (1 - 1.6 * dt); // auto-level
+      if (keys['KeyA'] || mobileLeft) dragon.rotation.z += 1.8 * dt;
+      if (keys['KeyD'] || mobileRight) dragon.rotation.z -= 1.8 * dt;
+      dragon.rotation.z *= (1 - 1.6 * dt);
 
-      // integrate
       dragon.position.addScaledVector(velocity, dt);
 
-      // ground
       const h = getHeight(dragon.position.x, dragon.position.z);
       const minY = h + 4.5;
       if (dragon.position.y < minY) {
@@ -531,12 +665,10 @@
         velocity.z *= 0.92;
       }
 
-      // soft world bounds
       const lim = WORLD * 0.48;
       if (Math.abs(dragon.position.x) > lim) velocity.x *= -0.4;
       if (Math.abs(dragon.position.z) > lim) velocity.z *= -0.4;
 
-      // wing animation
       const amp = flapping ? 0.72 : 0.12;
       const ang = Math.sin(flapPhase) * amp;
       leftWing.rotation.x = ang;
@@ -643,7 +775,7 @@
         if (Math.sqrt(dx * dx + dz * dz) < 95 && pos.y < getHeight(t.x, t.z) + 80) {
           t.raided = true;
           t.group.traverse(c => {
-            if (c.isMesh && c.material && c.material.color) {
+            if (c.isMesh && c.material && c.geometry) {
               if (c.geometry.type === 'BoxGeometry' || c.geometry.type === 'ConeGeometry') {
                 c.material = t.burntMat;
               }
@@ -676,25 +808,22 @@
       }
       if (fireCooldown > 0) fireCooldown -= dt;
 
-      if (gameState === 'playing' && isLocked) {
-        updateFlight(dt);
+      if (gameState === 'playing') {
+        // On mobile we always update; on desktop only when locked (or paused camera)
+        if (isTouchDevice || isLocked) {
+          updateFlight(dt);
+          handleActions();
+        }
         updateCamera(dt);
-        handleActions();
-      } else if (gameState === 'playing') {
-        // still update camera gently when unlocked
-        updateCamera(dt * 0.3);
       }
 
-      // HUD
-      const spd = velocity.length();
-      document.getElementById('speed').textContent = Math.round(spd);
+      document.getElementById('speed').textContent = Math.round(velocity.length());
       document.getElementById('alt').textContent = Math.round(dragon.position.y);
       document.getElementById('carrying').textContent = carrying ? `Carrying: ${carrying}` : '';
 
       renderer.render(scene, camera);
     }
 
-    // boot
     init();
   </script>
 </body>
