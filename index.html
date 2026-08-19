@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Dragon Lair Simulator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      overflow: hidden;
+      background: #0a0505;
+      font-family: Georgia, 'Times New Roman', serif;
+      color: #f4e4bc;
+      user-select: none;
+    }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #title-screen {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, rgba(40,15,10,0.92) 0%, rgba(10,5,5,0.97) 100%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; z-index: 20; padding: 20px;
+    }
+    #title-screen h1 {
+      font-size: clamp(2.2rem, 8vw, 3.8rem);
+      color: #c41e3a;
+      text-shadow: 0 0 30px #ff4400, 0 0 60px #aa2200;
+      margin-bottom: 12px;
+      letter-spacing: 0.05em;
+    }
+    #title-screen .tagline {
+      font-size: 1.15rem; color: #e8c87a; margin-bottom: 28px; max-width: 520px; line-height: 1.5;
+    }
+    #title-screen .controls {
+      background: rgba(0,0,0,0.45); border: 1px solid #5a3a20;
+      border-radius: 10px; padding: 18px 24px; max-width: 480px;
+      font-size: 0.95rem; line-height: 1.7; text-align: left; margin-bottom: 28px;
+    }
+    #title-screen .controls strong { color: #ffcc66; }
+    #start-btn {
+      background: linear-gradient(180deg, #8b1a1a, #5c0e0e);
+      color: #ffddaa; border: 2px solid #c41e3a;
+      padding: 14px 42px; font-size: 1.25rem; font-family: Georgia, serif;
+      border-radius: 8px; cursor: pointer; letter-spacing: 0.08em;
+      box-shadow: 0 0 25px rgba(196,30,58,0.5);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #start-btn:hover { transform: scale(1.05); box-shadow: 0 0 40px rgba(196,30,58,0.75); }
+    #hud {
+      position: absolute; top: 14px; left: 14px;
+      pointer-events: none; text-shadow: 0 1px 6px #000, 0 0 12px #000;
+      font-size: 1.05rem; line-height: 1.55; z-index: 10;
+    }
+    #hud span { color: #ffdd88; font-weight: bold; }
+    #message {
+      position: absolute; bottom: 28px; left: 0; right: 0;
+      text-align: center; font-size: 1.35rem;
+      text-shadow: 0 0 12px #000, 0 2px 8px #000;
+      opacity: 0; transition: opacity 0.35s; pointer-events: none; z-index: 10;
+    }
+    #message.show { opacity: 1; }
+    #crosshair {
+      position: absolute; top: 50%; left: 50%;
+      width: 18px; height: 18px; margin: -9px 0 0 -9px;
+      border: 1.5px solid rgba(255,220,150,0.55); border-radius: 50%;
+      pointer-events: none; z-index: 5; display: none;
+    }
+    #crosshair::after {
+      content: ''; position: absolute; top: 50%; left: 50%;
+      width: 4px; height: 4px; margin: -2px 0 0 -2px;
+      background: rgba(255,200,100,0.8); border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+  <div id="title-screen">
+    <h1>DRAGON LAIR</h1>
+    <p class="tagline">You are an ancient dragon. Your mountain cave holds the hoard. Raid the valley towns, steal their sheep, recover lost eggs, and return them to your lair.</p>
+    <div class="controls">
+      <strong>Mouse</strong> — Look / pitch & yaw (click to lock)<br>
+      <strong>W / Space</strong> — Flap wings (thrust + lift)<br>
+      <strong>S</strong> — Brake / slow<br>
+      <strong>A / D</strong> — Bank left / right<br>
+      <strong>E</strong> — Pick up sheep or egg (when close)<br>
+      <strong>G</strong> — Drop cargo (near cave = add to hoard)<br>
+      <strong>F</strong> — Breathe fire (raid a town)<br>
+      <strong>Esc</strong> — Unlock mouse / pause
+    </div>
+    <button id="start-btn">TAKE FLIGHT</button>
+  </div>
+
+  <div id="hud">
+    Gold: <span id="gold">0</span><br>
+    Sheep: <span id="sheep">0</span><br>
+    Eggs: <span id="eggs">0</span><br>
+    Speed: <span id="speed">0</span><br>
+    Alt: <span id="alt">0</span><br>
+    <span id="carrying"></span>
+  </div>
+  <div id="message"></div>
+  <div id="crosshair"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script>
+    // ========== GLOBALS ==========
+    let scene, camera, renderer, clock;
+    let dragon, leftWing, rightWing;
+    let velocity = new THREE.Vector3();
+    let keys = {};
+    let mouseDelta = { x: 0, y: 0 };
+    let isLocked = false;
+    let gameState = 'title'; // title | playing | paused
+    let gold = 0, sheepHoard = 0, eggHoard = 0;
+    let carrying = null; // null | 'sheep' | 'egg'
+    let carriedMesh = null;
+    let flapPhase = 0;
+    let messageTimer = 0;
+    let fireCooldown = 0;
+
+    const WORLD = 2000;
+    const towns = [];
+    const sheepList = [];
+    const eggList = [];
+
+    // ========== HEIGHT FUNCTION ==========
+    function getHeight(x, z) {
+      const r = Math.sqrt(x * x + z * z);
+      let h = 18 + 145 * Math.exp(-(r * r) / 95000);
+      h += 28 * Math.sin(x * 0.0075) * Math.cos(z * 0.009);
+      h += 16 * Math.sin(x * 0.018 + 0.7) * Math.sin(z * 0.014);
+      h += 7 * Math.sin(x * 0.035) * Math.cos(z * 0.028);
+      return Math.max(h, 6);
+    }
+
+    // ========== INIT ==========
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x6ba3c9);
+      scene.fog = new THREE.Fog(0x6ba3c9, 350, 1700);
+
+      camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.5, 3500);
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      document.body.appendChild(renderer.domElement);
+
+      // Lights
+      scene.add(new THREE.AmbientLight(0x6688aa, 0.55));
+      const sun = new THREE.DirectionalLight(0xfff0d8, 1.25);
+      sun.position.set(180, 420, 120);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.camera.near = 50;
+      sun.shadow.camera.far = 1200;
+      sun.shadow.camera.left = sun.shadow.camera.bottom = -400;
+      sun.shadow.camera.right = sun.shadow.camera.top = 400;
+      scene.add(sun);
+      scene.add(new THREE.HemisphereLight(0x87b8d8, 0x3a5020, 0.35));
+
+      createTerrain();
+      createDragon();
+      createTowns();
+      createSheep();
+      createEggs();
+      createCaveHoard();
+
+      clock = new THREE.Clock();
+
+      window.addEventListener('resize', onResize);
+      document.addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Escape') unlock(); });
+      document.addEventListener('keyup', e => { keys[e.code] = false; });
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('pointerlockchange', () => {
+        isLocked = document.pointerLockElement === renderer.domElement;
+        document.getElementById('crosshair').style.display = isLocked ? 'block' : 'none';
+        if (!isLocked && gameState === 'playing') gameState = 'paused';
+      });
+      renderer.domElement.addEventListener('click', () => {
+        if (gameState === 'playing' && !isLocked) renderer.domElement.requestPointerLock();
+      });
+      document.getElementById('start-btn').addEventListener('click', startGame);
+
+      animate();
+    }
+
+    function onResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function onMouseMove(e) {
+      if (isLocked) {
+        mouseDelta.x += e.movementX;
+        mouseDelta.y += e.movementY;
+      }
+    }
+
+    function unlock() {
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+
+    function startGame() {
+      document.getElementById('title-screen').style.display = 'none';
+      gameState = 'playing';
+      renderer.domElement.requestPointerLock();
+      showMessage('The mountain is yours. Protect the hoard.');
+    }
+
+    function showMessage(text, duration = 3.2) {
+      const el = document.getElementById('message');
+      el.textContent = text;
+      el.classList.add('show');
+      messageTimer = duration;
+    }
+
+    // ========== TERRAIN ==========
+    function createTerrain() {
+      const geo = new THREE.PlaneGeometry(WORLD, WORLD, 96, 96);
+      geo.rotateX(-Math.PI / 2);
+      const pos = geo.attributes.position;
+      const colors = [];
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), z = pos.getZ(i);
+        const y = getHeight(x, z);
+        pos.setY(i, y);
+        let c;
+        if (y > 95) c = new THREE.Color(0xe8e6e0);
+        else if (y > 55) c = new THREE.Color(0x6a5a42);
+        else if (y > 22) c = new THREE.Color(0x4a7a32);
+        else c = new THREE.Color(0x3d6b28);
+        colors.push(c.r, c.g, c.b);
+      }
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geo.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial({
+        vertexColors: true, roughness: 0.92, metalness: 0.02, flatShading: false
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+    }
+
+    // ========== DRAGON ==========
+    function createDragon() {
+      dragon = new THREE.Group();
+      const scaleMat = new THREE.MeshStandardMaterial({ color: 0x7a1515, roughness: 0.55, metalness: 0.15 });
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a0a0a, roughness: 0.7 });
+      const wingMat = new THREE.MeshStandardMaterial({
+        color: 0x4a1010, side: THREE.DoubleSide, roughness: 0.65, transparent: true, opacity: 0.92
+      });
+      const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffcc22, emissive: 0xaa8800, emissiveIntensity: 0.6 });
+
+      // Body
+      const body = new THREE.Mesh(new THREE.SphereGeometry(3.6, 14, 10), scaleMat);
+      body.scale.set(2.35, 1.05, 1.15);
+      body.castShadow = true;
+      dragon.add(body);
+
+      // Neck + Head
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.2, 5, 8), scaleMat);
+      neck.rotation.z = Math.PI / 2;
+      neck.position.set(6.5, 1.2, 0);
+      dragon.add(neck);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(2.4, 12, 10), scaleMat);
+      head.position.set(10.2, 1.8, 0);
+      head.scale.set(1.25, 0.95, 0.9);
+      head.castShadow = true;
+      dragon.add(head);
+
+      const snout = new THREE.Mesh(new THREE.ConeGeometry(1.15, 3.4, 7), scaleMat);
+      snout.rotation.z = -Math.PI / 2;
+      snout.position.set(13.6, 1.5, 0);
+      dragon.add(snout);
+
+      // Horns
+      [[0.9, 0.55], [-0.9, -0.55]].forEach(([z, rz]) => {
+        const horn = new THREE.Mesh(new THREE.ConeGeometry(0.32, 2.8, 6), darkMat);
+        horn.position.set(10.8, 3.6, z);
+        horn.rotation.z = 0.45;
+        horn.rotation.y = rz * 0.3;
+        dragon.add(horn);
+      });
+
+      // Eyes
+      [[0.9], [-0.9]].forEach(([z]) => {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), eyeMat);
+        eye.position.set(11.6, 2.4, z);
+        dragon.add(eye);
+      });
+
+      // Wings
+      leftWing = new THREE.Group();
+      leftWing.position.set(1.5, 1.8, -1.8);
+      const lMem = new THREE.Mesh(new THREE.PlaneGeometry(20, 11), wingMat);
+      lMem.rotation.x = Math.PI / 2;
+      lMem.rotation.y = 0.15;
+      lMem.position.set(2, 0, -8);
+      leftWing.add(lMem);
+      // wing bone
+      const lBone = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.15, 18, 5), darkMat);
+      lBone.rotation.z = Math.PI / 2;
+      lBone.rotation.y = 0.4;
+      lBone.position.set(1, 0.3, -6);
+      leftWing.add(lBone);
+      dragon.add(leftWing);
+
+      rightWing = new THREE.Group();
+      rightWing.position.set(1.5, 1.8, 1.8);
+      const rMem = new THREE.Mesh(new THREE.PlaneGeometry(20, 11), wingMat);
+      rMem.rotation.x = Math.PI / 2;
+      rMem.rotation.y = -0.15;
+      rMem.position.set(2, 0, 8);
+      rightWing.add(rMem);
+      const rBone = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.15, 18, 5), darkMat);
+      rBone.rotation.z = Math.PI / 2;
+      rBone.rotation.y = -0.4;
+      rBone.position.set(1, 0.3, 6);
+      rightWing.add(rBone);
+      dragon.add(rightWing);
+
+      // Tail
+      const tail = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 0.25, 18, 7), scaleMat);
+      tail.rotation.z = Math.PI / 2;
+      tail.position.set(-12, 0.2, 0);
+      tail.castShadow = true;
+      dragon.add(tail);
+
+      // Legs (simple)
+      [[-2, -2.8, 2.2], [-2, -2.8, -2.2], [3, -2.6, 2], [3, -2.6, -2]].forEach(([x, y, z]) => {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.4, 3.2, 6), darkMat);
+        leg.position.set(x, y, z);
+        dragon.add(leg);
+      });
+
+      // Start position — ledge of the mountain, facing outward
+      dragon.position.set(15, getHeight(15, -55) + 12, -55);
+      dragon.rotation.order = 'YXZ';
+      dragon.rotation.y = Math.PI * 0.15;
+      scene.add(dragon);
+    }
+
+    // ========== TOWNS ==========
+    function createTowns() {
+      const sites = [
+        { x: 420, z: 280 },
+        { x: -380, z: 410 },
+        { x: 210, z: -480 }
+      ];
+      sites.forEach((s, idx) => {
+        const group = new THREE.Group();
+        const baseY = getHeight(s.x, s.z);
+        group.position.set(s.x, baseY, s.z);
+
+        const houseMat = new THREE.MeshStandardMaterial({ color: 0x8b6914, roughness: 0.85 });
+        const roofMat = new THREE.MeshStandardMaterial({ color: 0x5c2e0e, roughness: 0.9 });
+        const burntMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 1 });
+
+        for (let i = 0; i < 7 + (idx % 3); i++) {
+          const hx = (Math.random() - 0.5) * 55;
+          const hz = (Math.random() - 0.5) * 45;
+          const house = new THREE.Mesh(new THREE.BoxGeometry(7 + Math.random() * 4, 5 + Math.random() * 3, 6 + Math.random() * 3), houseMat);
+          house.position.set(hx, 3, hz);
+          house.castShadow = true;
+          house.receiveShadow = true;
+          group.add(house);
+          const roof = new THREE.Mesh(new THREE.ConeGeometry(6, 4, 4), roofMat);
+          roof.position.set(hx, 7.5, hz);
+          roof.rotation.y = Math.PI / 4;
+          group.add(roof);
+        }
+        // simple road marker
+        const marker = new THREE.Mesh(
+          new THREE.CylinderGeometry(1.2, 1.2, 0.4, 8),
+          new THREE.MeshStandardMaterial({ color: 0x444444 })
+        );
+        marker.position.y = 0.3;
+        group.add(marker);
+
+        scene.add(group);
+        towns.push({ group, raided: false, houseMat, burntMat, x: s.x, z: s.z });
+      });
+    }
+
+    // ========== SHEEP ==========
+    function createSheep() {
+      const white = new THREE.MeshStandardMaterial({ color: 0xf5f0e6, roughness: 0.9 });
+      const black = new THREE.MeshStandardMaterial({ color: 0x222222 });
+      for (let i = 0; i < 16; i++) {
+        let x, z, tries = 0;
+        do {
+          const ang = Math.random() * Math.PI * 2;
+          const r = 180 + Math.random() * 520;
+          x = Math.cos(ang) * r;
+          z = Math.sin(ang) * r;
+          tries++;
+        } while (getHeight(x, z) > 38 && tries < 30);
+
+        const y = getHeight(x, z) + 1.4;
+        const sheep = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.SphereGeometry(1.35, 8, 6), white);
+        body.scale.set(1.4, 1, 1.1);
+        sheep.add(body);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.7, 6, 5), white);
+        head.position.set(1.5, 0.3, 0);
+        sheep.add(head);
+        const earL = new THREE.Mesh(new THREE.SphereGeometry(0.25, 4, 3), black);
+        earL.position.set(1.6, 0.7, 0.4);
+        sheep.add(earL);
+        const earR = earL.clone();
+        earR.position.z = -0.4;
+        sheep.add(earR);
+        // legs
+        [[0.7, -1.3, 0.6], [0.7, -1.3, -0.6], [-0.7, -1.3, 0.6], [-0.7, -1.3, -0.6]].forEach(p => {
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.15, 1.1, 4), black);
+          leg.position.set(...p);
+          sheep.add(leg);
+        });
+        sheep.position.set(x, y, z);
+        sheep.rotation.y = Math.random() * Math.PI * 2;
+        scene.add(sheep);
+        sheepList.push({ mesh: sheep, collected: false, x, z });
+      }
+    }
+
+    // ========== EGGS ==========
+    function createEggs() {
+      const eggMat = new THREE.MeshStandardMaterial({ color: 0xe8c070, roughness: 0.35, metalness: 0.1 });
+      const spots = [
+        { x: 95, z: -120 }, { x: -140, z: 90 }, { x: 60, z: 160 },
+        { x: -80, z: -180 }, { x: 220, z: 40 }
+      ];
+      spots.forEach(s => {
+        const y = getHeight(s.x, s.z) + 1.8;
+        const egg = new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), eggMat);
+        egg.scale.set(1, 1.25, 1);
+        egg.position.set(s.x, y, s.z);
+        egg.castShadow = true;
+        // nest
+        const nest = new THREE.Mesh(
+          new THREE.TorusGeometry(2.4, 0.5, 6, 12),
+          new THREE.MeshStandardMaterial({ color: 0x4a3520, roughness: 1 })
+        );
+        nest.rotation.x = Math.PI / 2;
+        nest.position.set(s.x, y - 1.2, s.z);
+        scene.add(nest);
+        scene.add(egg);
+        eggList.push({ mesh: egg, collected: false, nest });
+      });
+    }
+
+    // ========== CAVE HOARD ==========
+    function createCaveHoard() {
+      const goldMat = new THREE.MeshStandardMaterial({
+        color: 0xffd700, metalness: 0.85, roughness: 0.25, emissive: 0x332200, emissiveIntensity: 0.15
+      });
+      for (let i = 0; i < 18; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const r = 4 + Math.random() * 18;
+        const x = Math.cos(ang) * r;
+        const z = Math.sin(ang) * r - 8;
+        const y = getHeight(x, z) + 1.2 + Math.random() * 2;
+        const pile = new THREE.Mesh(
+          new THREE.SphereGeometry(1.2 + Math.random() * 1.4, 7, 5),
+          goldMat
+        );
+        pile.position.set(x, y, z);
+        pile.scale.set(1.2, 0.6 + Math.random() * 0.5, 1.1);
+        scene.add(pile);
+      }
+      // cave mouth rocks
+      const rockMat = new THREE.MeshStandardMaterial({ color: 0x3a3228, roughness: 0.95 });
+      for (let i = 0; i < 8; i++) {
+        const rock = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(4 + Math.random() * 5, 0),
+          rockMat
+        );
+        const a = (i / 8) * Math.PI * 1.4 - 0.4;
+        rock.position.set(Math.cos(a) * 28, getHeight(0, 0) + 8 + Math.random() * 6, Math.sin(a) * 22 - 5);
+        rock.rotation.set(Math.random(), Math.random(), Math.random());
+        scene.add(rock);
+      }
+    }
+
+    // ========== FLIGHT ==========
+    function updateFlight(dt) {
+      const flapping = keys['KeyW'] || keys['Space'];
+      if (flapping) {
+        flapPhase += dt * 9.5;
+        const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(dragon.quaternion);
+        velocity.addScaledVector(fwd, 95 * dt);
+        velocity.y += 42 * dt;
+      } else {
+        flapPhase += dt * 1.8;
+      }
+
+      // gravity + mild lift
+      velocity.y -= 24 * dt;
+      const spd = velocity.length();
+      if (spd > 8) velocity.y += Math.min(spd * 0.18, 9) * dt;
+
+      // drag
+      velocity.multiplyScalar(Math.max(0, 1 - 0.55 * dt));
+      if (keys['KeyS']) velocity.multiplyScalar(Math.max(0, 1 - 1.8 * dt));
+
+      // orientation from mouse
+      if (isLocked) {
+        dragon.rotation.y -= mouseDelta.x * 0.0018;
+        dragon.rotation.x -= mouseDelta.y * 0.0015;
+        dragon.rotation.x = Math.max(-1.15, Math.min(0.85, dragon.rotation.x));
+        mouseDelta.x = mouseDelta.y = 0;
+      }
+
+      // bank
+      if (keys['KeyA']) dragon.rotation.z += 1.8 * dt;
+      if (keys['KeyD']) dragon.rotation.z -= 1.8 * dt;
+      dragon.rotation.z *= (1 - 1.6 * dt); // auto-level
+
+      // integrate
+      dragon.position.addScaledVector(velocity, dt);
+
+      // ground
+      const h = getHeight(dragon.position.x, dragon.position.z);
+      const minY = h + 4.5;
+      if (dragon.position.y < minY) {
+        dragon.position.y = minY;
+        if (velocity.y < 0) velocity.y *= -0.15;
+        velocity.x *= 0.92;
+        velocity.z *= 0.92;
+      }
+
+      // soft world bounds
+      const lim = WORLD * 0.48;
+      if (Math.abs(dragon.position.x) > lim) velocity.x *= -0.4;
+      if (Math.abs(dragon.position.z) > lim) velocity.z *= -0.4;
+
+      // wing animation
+      const amp = flapping ? 0.72 : 0.12;
+      const ang = Math.sin(flapPhase) * amp;
+      leftWing.rotation.x = ang;
+      rightWing.rotation.x = ang;
+      leftWing.rotation.z = ang * 0.35;
+      rightWing.rotation.z = -ang * 0.35;
+    }
+
+    function updateCamera(dt) {
+      const offset = new THREE.Vector3(-22, 9, 0);
+      offset.applyQuaternion(dragon.quaternion);
+      const desired = dragon.position.clone().add(offset);
+      camera.position.lerp(desired, 1 - Math.pow(0.001, dt));
+      const look = dragon.position.clone().add(
+        new THREE.Vector3(12, 2.5, 0).applyQuaternion(dragon.quaternion)
+      );
+      camera.lookAt(look);
+    }
+
+    // ========== INTERACTIONS ==========
+    function tryPickup() {
+      if (carrying) return;
+      const pos = dragon.position;
+      for (const s of sheepList) {
+        if (s.collected) continue;
+        if (pos.distanceTo(s.mesh.position) < 14) {
+          s.collected = true;
+          s.mesh.visible = false;
+          carrying = 'sheep';
+          createCarriedVisual('sheep');
+          showMessage('Sheep secured. Return it to the cave.');
+          return;
+        }
+      }
+      for (const e of eggList) {
+        if (e.collected) continue;
+        if (pos.distanceTo(e.mesh.position) < 13) {
+          e.collected = true;
+          e.mesh.visible = false;
+          if (e.nest) e.nest.visible = false;
+          carrying = 'egg';
+          createCarriedVisual('egg');
+          showMessage('Dragon egg recovered! Take it home.');
+          return;
+        }
+      }
+    }
+
+    function createCarriedVisual(type) {
+      if (carriedMesh) dragon.remove(carriedMesh);
+      if (type === 'sheep') {
+        const g = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.SphereGeometry(1.1, 6, 5), new THREE.MeshStandardMaterial({ color: 0xf0ebe0 }));
+        body.scale.set(1.3, 1, 1);
+        g.add(body);
+        carriedMesh = g;
+      } else {
+        carriedMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(1.3, 8, 6),
+          new THREE.MeshStandardMaterial({ color: 0xe8c070 })
+        );
+        carriedMesh.scale.set(1, 1.2, 1);
+      }
+      carriedMesh.position.set(0, -4.2, 0);
+      dragon.add(carriedMesh);
+    }
+
+    function tryDrop() {
+      if (!carrying) return;
+      const pos = dragon.position;
+      const nearCave = Math.sqrt(pos.x * pos.x + (pos.z + 10) * (pos.z + 10)) < 55 && pos.y > getHeight(0, 0) - 5;
+      if (nearCave) {
+        if (carrying === 'sheep') {
+          sheepHoard++;
+          gold += 25;
+          showMessage('Sheep added to the hoard. +25 gold');
+        } else {
+          eggHoard++;
+          gold += 60;
+          showMessage('Egg returned to the lair. +60 gold');
+        }
+        document.getElementById('sheep').textContent = sheepHoard;
+        document.getElementById('eggs').textContent = eggHoard;
+        document.getElementById('gold').textContent = gold;
+      } else {
+        showMessage('Dropped in the wild…');
+      }
+      carrying = null;
+      if (carriedMesh) {
+        dragon.remove(carriedMesh);
+        carriedMesh = null;
+      }
+      document.getElementById('carrying').textContent = '';
+    }
+
+    function tryFire() {
+      if (fireCooldown > 0) return;
+      fireCooldown = 1.8;
+      const pos = dragon.position;
+      let hit = false;
+      for (const t of towns) {
+        if (t.raided) continue;
+        const dx = pos.x - t.x, dz = pos.z - t.z;
+        if (Math.sqrt(dx * dx + dz * dz) < 95 && pos.y < getHeight(t.x, t.z) + 80) {
+          t.raided = true;
+          t.group.traverse(c => {
+            if (c.isMesh && c.material && c.material.color) {
+              if (c.geometry.type === 'BoxGeometry' || c.geometry.type === 'ConeGeometry') {
+                c.material = t.burntMat;
+              }
+            }
+          });
+          gold += 75;
+          document.getElementById('gold').textContent = gold;
+          showMessage('Town scorched! +75 gold');
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) showMessage('Fire breath…');
+    }
+
+    function handleActions() {
+      if (keys['KeyE']) { tryPickup(); keys['KeyE'] = false; }
+      if (keys['KeyG']) { tryDrop(); keys['KeyG'] = false; }
+      if (keys['KeyF']) { tryFire(); keys['KeyF'] = false; }
+    }
+
+    // ========== MAIN LOOP ==========
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.05);
+
+      if (messageTimer > 0) {
+        messageTimer -= dt;
+        if (messageTimer <= 0) document.getElementById('message').classList.remove('show');
+      }
+      if (fireCooldown > 0) fireCooldown -= dt;
+
+      if (gameState === 'playing' && isLocked) {
+        updateFlight(dt);
+        updateCamera(dt);
+        handleActions();
+      } else if (gameState === 'playing') {
+        // still update camera gently when unlocked
+        updateCamera(dt * 0.3);
+      }
+
+      // HUD
+      const spd = velocity.length();
+      document.getElementById('speed').textContent = Math.round(spd);
+      document.getElementById('alt').textContent = Math.round(dragon.position.y);
+      document.getElementById('carrying').textContent = carrying ? `Carrying: ${carrying}` : '';
+
+      renderer.render(scene, camera);
+    }
+
+    // boot
+    init();
+  </script>
+</body>
+</html>
