@@ -39,7 +39,7 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none}
 <h1>DRAGON LAIR</h1>
 <p class="tagline">You are an ancient dragon. Your mountain cave holds the hoard. Raid the valley towns, steal their sheep, recover lost eggs, and return them to your lair.</p>
 <div class="controls">
-<strong>Desktop</strong><br>Mouse look · W/Space flap · S brake · A/D bank<br>E pick up · G drop · F fire<br><br>
+<strong>Desktop</strong><br>Mouse look · W/Space flap · S brake · A/D turn<br>E pick up · G drop · F fire<br><br>
 <strong>Phone / Tablet</strong><br>Drag screen to look · FLAP · ◀ ▶ turn<br>PICK · DROP · FIRE
 </div>
 <button id="start-btn">TAKE FLIGHT</button>
@@ -165,10 +165,11 @@ velocity.addScaledVector(fwd,thrust*dt);velocity.y+=lift*dt;
 velocity.y-=22*dt;const spd=velocity.length();if(spd>6)velocity.y+=Math.min(spd*.16,8)*dt;
 velocity.multiplyScalar(Math.max(0,1-.48*dt));if(keys['KeyS']||mobileBrake)velocity.multiplyScalar(Math.max(0,1-1.5*dt));
 if(isLocked||isTouchDevice){const sensY=isTouchDevice?.0028:.0018,sensX=isTouchDevice?.0014:.0015;lookSmoothX+=(mouseDelta.x-lookSmoothX)*Math.min(1,18*dt);lookSmoothY+=(mouseDelta.y-lookSmoothY)*Math.min(1,18*dt);dragon.rotation.y-=lookSmoothX*sensY;dragon.rotation.x-=lookSmoothY*sensX;dragon.rotation.x=Math.max(-1.05,Math.min(.78,dragon.rotation.x));mouseDelta.x=mouseDelta.y=0;lookSmoothX*=(1-4.5*dt);lookSmoothY*=(1-4.5*dt)}
-const bankRate=isTouchDevice?1.5:1.8,yawFromBank=isTouchDevice?1.1:.55;
-if(keys['KeyA']||mobileLeft){dragon.rotation.z+=bankRate*dt;dragon.rotation.y+=yawFromBank*dt}
-if(keys['KeyD']||mobileRight){dragon.rotation.z-=bankRate*dt;dragon.rotation.y-=yawFromBank*dt}
-dragon.rotation.z*=(1-1.6*dt);
+const yawRate=isTouchDevice?1.65:1.25;
+if(keys['KeyA']||mobileLeft) dragon.rotation.y+=yawRate*dt;
+if(keys['KeyD']||mobileRight) dragon.rotation.y-=yawRate*dt;
+const targetBank=(keys['KeyA']||mobileLeft)?0.28:(keys['KeyD']||mobileRight)?-0.28:0;
+dragon.rotation.z+=(targetBank-dragon.rotation.z)*Math.min(1,7*dt);
 dragon.position.addScaledVector(velocity,dt);
 const h=getHeight(dragon.position.x,dragon.position.z),minY=h+5.5;
 if(dragon.position.y<minY){dragon.position.y=minY;if(velocity.y<0)velocity.y*=-.12;velocity.x*=.9;velocity.z*=.9}
@@ -176,7 +177,17 @@ const lim=WORLD*.48;if(Math.abs(dragon.position.x)>lim)velocity.x*=-.35;if(Math.
 const amp=flapping?.85:.14,ang=Math.sin(flapPhase)*amp;
 leftWing.rotation.z=ang;rightWing.rotation.z=-ang;leftWing.rotation.x=ang*.2;rightWing.rotation.x=ang*.2;
 }
-function updateCamera(dt){const back=isTouchDevice?-20:-24,up=isTouchDevice?8:10;const offset=new THREE.Vector3(back,up,0);offset.applyQuaternion(dragon.quaternion);const desired=dragon.position.clone().add(offset);const lerpAmt=isTouchDevice?(1-Math.pow(.0004,dt)):(1-Math.pow(.001,dt));camera.position.lerp(desired,lerpAmt);camera.lookAt(dragon.position.clone().add(new THREE.Vector3(12,2.5,0).applyQuaternion(dragon.quaternion)))}
+function updateCamera(dt){
+const level=new THREE.Euler(dragon.rotation.x,dragon.rotation.y,0,'YXZ');
+const levelQ=new THREE.Quaternion().setFromEuler(level);
+const back=isTouchDevice?-20:-24,up=isTouchDevice?8:10;
+const offset=new THREE.Vector3(back,up,0).applyQuaternion(levelQ);
+const desired=dragon.position.clone().add(offset);
+const lerpAmt=isTouchDevice?(1-Math.pow(.0004,dt)):(1-Math.pow(.001,dt));
+camera.position.lerp(desired,lerpAmt);
+const lookAt=dragon.position.clone().add(new THREE.Vector3(12,2.5,0).applyQuaternion(levelQ));
+camera.lookAt(lookAt);
+}
 function tryPickup(){if(carrying)return;const pos=dragon.position;for(const s of sheepList){if(s.collected)continue;if(pos.distanceTo(s.mesh.position)<14){s.collected=true;s.mesh.visible=false;carrying='sheep';createCarriedVisual('sheep');showMessage('Sheep secured. Return it to the cave.');return}}for(const e of eggList){if(e.collected)continue;if(pos.distanceTo(e.mesh.position)<13){e.collected=true;e.mesh.visible=false;if(e.nest)e.nest.visible=false;carrying='egg';createCarriedVisual('egg');showMessage('Dragon egg recovered! Take it home.');return}}}
 function createCarriedVisual(type){if(carriedMesh)dragon.remove(carriedMesh);if(type==='sheep'){const g=new THREE.Group();const body=new THREE.Mesh(new THREE.SphereGeometry(1.1,6,5),new THREE.MeshStandardMaterial({color:0xf0ebe0}));body.scale.set(1.3,1,1);g.add(body);carriedMesh=g}else{carriedMesh=new THREE.Mesh(new THREE.SphereGeometry(1.3,8,6),new THREE.MeshStandardMaterial({color:0xe8c070}));carriedMesh.scale.set(1,1.2,1)}carriedMesh.position.set(0,-4.2,0);dragon.add(carriedMesh)}
 function tryDrop(){if(!carrying)return;const pos=dragon.position;const nearCave=Math.sqrt(pos.x*pos.x+(pos.z+10)*(pos.z+10))<55&&pos.y>getHeight(0,0)-5;if(nearCave){if(carrying==='sheep'){sheepHoard++;gold+=25;showMessage('Sheep added to the hoard. +25 gold')}else{eggHoard++;gold+=60;showMessage('Egg returned to the lair. +60 gold')}document.getElementById('sheep').textContent=sheepHoard;document.getElementById('eggs').textContent=eggHoard;document.getElementById('gold').textContent=gold}else showMessage('Dropped in the wild…');carrying=null;if(carriedMesh){dragon.remove(carriedMesh);carriedMesh=null}document.getElementById('carrying').textContent=''}
